@@ -91,19 +91,19 @@ public class ViscaWebhookService
 
 				if (viscaPayload.IsValid)
 				{
-					bool result = await TriggerCameraPreset(viscaPayload.JsonBody);
+					Tuple<string, bool> result = await TriggerCameraPreset(viscaPayload.JsonBody);
 
-					if (result)
+					if (result.Item2)
 					{
-						// Step 5: Respond with success
+						// Respond with success
 						context.Response.StatusCode = StatusCodes.Status200OK; // OK
 						await context.Response.WriteAsync("Preset trigger request received and processed");
 					}
 					else
 					{
-						// Step 5: Respond with failure
+						// Respond with failure
 						context.Response.StatusCode = StatusCodes.Status417ExpectationFailed;
-						await context.Response.WriteAsync("Preset trigger request failed to process, camera may inaccessible or offline!");
+						await context.Response.WriteAsync($"Preset trigger request failed to process, Reason: {result.Item1}");
 					}
 				}
 				else
@@ -127,13 +127,13 @@ public class ViscaWebhookService
 
 					if (result)
 					{
-						// Step 5: Respond with success
-						context.Response.StatusCode = 200; // OK
+						// Respond with success
+						context.Response.StatusCode = StatusCodes.Status200OK; // OK
 						await context.Response.WriteAsync("Preset trigger request received and processed");
 					}
 					else
 					{
-						// Step 5: Respond with failure
+						// Respond with failure
 						context.Response.StatusCode = StatusCodes.Status417ExpectationFailed;
 						await context.Response.WriteAsync("Preset trigger request failed to process, camera may inaccessible or offline!");
 					}
@@ -149,8 +149,9 @@ public class ViscaWebhookService
 	}
 
 	// Internal function to trigger camera preset
-	private async Task<bool> TriggerCameraPreset(PresetTriggerData? data)
+	private async Task<Tuple<string, bool>> TriggerCameraPreset(PresetTriggerData? data)
 	{
+		string returnMsg = string.Empty;
 		bool bSuccess = false;
 		// Here, we would call the ViscaCameraManager to send the trigger to the camera over UDP.
 		ViscaCameraController cameraManager = new ViscaCameraController();
@@ -160,22 +161,24 @@ public class ViscaWebhookService
 		{
 			await cameraManager.TriggerPreset(data.Preset);
 			bSuccess = true;
+			returnMsg = $"Camera preset {data.Preset} triggered on {data.IPAddress}:{data.Port}";
 			_logger.LogInformation("Camera preset {Preset} triggered on {IPAddress}:{Port}", data.Preset, data.IPAddress, data.Port);
 		}
 		else if (status == ViscaHardwareStatus.ValidationFailed)
 		{
+			returnMsg = "Camera Validation Failed!";
 			_logger.LogInformation("Camera Validation Failed!");
 		}
 		else if (status == ViscaHardwareStatus.NoResponse)
 		{
-
+			returnMsg = $"No Response from Camera at {data.IPAddress}:{data.Port}";
 		}
 		else if (status == ViscaHardwareStatus.Error)
 		{
-
+			returnMsg = "Error";
 		}
 
-		return bSuccess;
+		return new Tuple<string, bool>(returnMsg, bSuccess);
 	}
 
 	private async Task<bool> SaveCameraPreset(PresetTriggerData? data)
