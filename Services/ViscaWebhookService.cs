@@ -32,7 +32,8 @@ public class ViscaWebhookService
 				headersSent.Append($"{header.Key}: {header.Value}, ");
 			}
 
-			await context.Response.WriteAsync($"Unauthorized, headers received: {headersSent} trying to match APIKEY={API_KEY}");
+			//this was added for testing remove for production do not want to leak out API key on a bad request haha
+			//await context.Response.WriteAsync($"Unauthorized, headers received: {headersSent} trying to match APIKEY={API_KEY}");
 
 			return false; // Exit function early if key is invalid
 		}
@@ -97,7 +98,7 @@ public class ViscaWebhookService
 					{
 						// Respond with success
 						context.Response.StatusCode = StatusCodes.Status200OK; // OK
-						await context.Response.WriteAsync("Preset trigger request received and processed");
+						await context.Response.WriteAsync(result.Item1);
 					}
 					else
 					{
@@ -123,19 +124,19 @@ public class ViscaWebhookService
 
 				if (viscaPayload.IsValid)
 				{
-					bool result = await SaveCameraPreset(viscaPayload.JsonBody);
+					Tuple<string, bool> result = await SaveCameraPreset(viscaPayload.JsonBody);
 
-					if (result)
+					if (result.Item2)
 					{
 						// Respond with success
 						context.Response.StatusCode = StatusCodes.Status200OK; // OK
-						await context.Response.WriteAsync("Preset trigger request received and processed");
+						await context.Response.WriteAsync(result.Item1);
 					}
 					else
 					{
 						// Respond with failure
 						context.Response.StatusCode = StatusCodes.Status417ExpectationFailed;
-						await context.Response.WriteAsync("Preset trigger request failed to process, camera may inaccessible or offline!");
+						await context.Response.WriteAsync($"Save Preset request failed to process, Reason: {result.Item1}");
 					}
 				}
 				else
@@ -161,7 +162,45 @@ public class ViscaWebhookService
 		{
 			await cameraManager.TriggerPreset(data.Preset);
 			bSuccess = true;
-			returnMsg = $"Camera preset {data.Preset} triggered on {data.IPAddress}:{data.Port}";
+			returnMsg = $"Camera preset {data.Preset} triggered on device {data.IPAddress}:{data.Port}";
+			_logger.LogInformation("Camera preset {Preset} triggered on device {IPAddress}:{Port}", data.Preset, data.IPAddress, data.Port);
+		}
+		else if (status == ViscaHardwareStatus.ValidationFailed)
+		{
+			returnMsg = "Camera Validation Failed!";
+			_logger.LogInformation("Camera Validation Failed!");
+		}
+		else if (status == ViscaHardwareStatus.NoResponse)
+		{
+			returnMsg = $"No Response from Camera at {data.IPAddress}:{data.Port}";
+			_logger.LogInformation($"No Response from Camera at {data.IPAddress}:{data.Port}");
+		}
+		else if (status == ViscaHardwareStatus.Error)
+		{
+			returnMsg = "Error";
+			_logger.LogInformation("Camera Trigger Preset ERROR");
+		}
+		else
+		{
+			_logger.LogInformation("Failed to connect to Camera!");
+		}
+
+		return new Tuple<string, bool>(returnMsg, bSuccess);
+	}
+
+	private async Task<Tuple<string,bool>> SaveCameraPreset(PresetTriggerData? data)
+	{
+		string returnMsg = string.Empty;
+		bool bSuccess = false;
+
+		ViscaCameraController cameraManager = new ViscaCameraController();
+		ViscaHardwareStatus status = cameraManager.Connect(new ViscaConnection(data.IPAddress, data.Port));
+
+		if (status == ViscaHardwareStatus.Connected && cameraManager.IsConnected)
+		{
+			await cameraManager.SetPreset(data.Preset);
+			bSuccess = true;
+			returnMsg = $"Camera preset {data.Preset} as been updated to new PTZ coordinates on device {data.IPAddress}:{data.Port}";
 			_logger.LogInformation("Camera preset {Preset} triggered on {IPAddress}:{Port}", data.Preset, data.IPAddress, data.Port);
 		}
 		else if (status == ViscaHardwareStatus.ValidationFailed)
@@ -172,35 +211,19 @@ public class ViscaWebhookService
 		else if (status == ViscaHardwareStatus.NoResponse)
 		{
 			returnMsg = $"No Response from Camera at {data.IPAddress}:{data.Port}";
+			_logger.LogInformation($"No Response from Camera at {data.IPAddress}:{data.Port}");
 		}
 		else if (status == ViscaHardwareStatus.Error)
 		{
 			returnMsg = "Error";
-		}
-
-		return new Tuple<string, bool>(returnMsg, bSuccess);
-	}
-
-	private async Task<bool> SaveCameraPreset(PresetTriggerData? data)
-	{
-		bool bSuccess = false;
-
-		ViscaCameraController cameraManager = new ViscaCameraController();
-		cameraManager.Connect(new ViscaConnection(data.IPAddress, data.Port));
-
-		if (cameraManager.IsConnected)
-		{
-			await cameraManager.SetPreset(data.Preset);
-			bSuccess = true;
+			_logger.LogInformation("Camera Save Preset ERROR");
 		}
 		else
 		{
 			_logger.LogInformation("Failed to connect to Camera!");
 		}
 
-		_logger.LogInformation("Camera preset {Preset} saved on {IPAddress}:{Port}", data.Preset, data.IPAddress, data.Port);
-
-		return bSuccess;
+		return new Tuple<string, bool>(returnMsg, bSuccess);
 	}
 }
 
